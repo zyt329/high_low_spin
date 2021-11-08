@@ -108,8 +108,13 @@ end
 
 function init_lattice_gen(;L1,L2)
     lattice = []
+    ϕ_init = rand(Uniform(0,2π))
     for i in 1:L1*L2
-        push!(lattice, Spin())
+        if isodd(sum(coordinate(i;L1=L1,L2=L2)))
+            push!(lattice, Spin(ϕ=ϕ_init))
+        else
+            push!(lattice, Spin(ϕ=ϕ_init+π))
+        end
     end
     return lattice
 end

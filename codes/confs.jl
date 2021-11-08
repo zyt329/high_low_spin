@@ -1,6 +1,7 @@
 using Random, Distributions
 
 include("lattice.jl")
+println()
 
 """
 Calculate energy of a certain configuration. The convention for the cross product is that spin at odd sites cross spin at even site.
@@ -54,6 +55,48 @@ end
 @debug Sy=cal_Sy(Lattice(2,2))
 @debug Sz=cal_Sz(Lattice(2,2))
 
+function cal_Sx_stag(config::Lattice)
+    Sx = 0
+    for (ind,sp) in enumerate(config.spin_conf)
+        coord = coordinate(ind; L1=config.L1, L2=config.L2)
+        Sx += (-1)^(coord[1]+coord[2])*sp.norm*sin(sp.θ)*cos(sp.ϕ)
+    end
+    return Sx
+end
+
+function cal_Sy_stag(config::Lattice)
+    Sy = 0
+    for (ind,sp) in enumerate(config.spin_conf)
+        coord = coordinate(ind; L1=config.L1, L2=config.L2)
+        Sy += (-1)^(coord[1]+coord[2])*sp.norm*sin(sp.θ)*sin(sp.ϕ)
+    end
+    return Sy
+end
+
+function cal_Sz_stag(config::Lattice)
+    Sz = 0
+    for (ind,sp) in enumerate(config.spin_conf)
+        coord = coordinate(ind; L1=config.L1, L2=config.L2)
+        Sz += (-1)^(coord[1]+coord[2])*sp.norm*cos(sp.θ)
+    end
+    return Sz
+end
+@debug println()
+@debug println(cal_Sx_stag(Lattice(2,2,spin_conf=[Spin(norm=1.0,ϕ=0),Spin(norm=1.0,ϕ=π),Spin(norm=1.0,ϕ=π),Spin(norm=1.0,ϕ=0)])))
+@debug println(cal_Sy_stag(Lattice(2,2)))
+@debug println(cal_Sz_stag(Lattice(2,2)))
+
+function cal_n(config::Lattice)
+    n = 0
+    for (ind,sp) in enumerate(config.spin_conf)
+        n += sp.norm
+    end
+    n = n / (config.L1*config.L2)
+    return n
+end
+
+@debug println(cal_n(Lattice(2,2)))
+
 """
 Represent a Microstate.
 
@@ -66,6 +109,8 @@ mutable struct Microstate
     config::Lattice
     E::Float64
     S::Array{Float64,1}
+    S_stag::Array{Float64, 1}
+    n::Float64
 
     function Microstate(;
         J = 1.0,
@@ -75,7 +120,9 @@ mutable struct Microstate
     )
         E = Energy(;J=J, Δ=Δ, Dz=Dz, config=config)
         S = [cal_Sx(config),cal_Sy(config),cal_Sz(config)]
-        new(J, Δ, Dz, config, E, S)
+        S_stag = [cal_Sx_stag(config),cal_Sy_stag(config),cal_Sz_stag(config)]
+        n = cal_n(config)
+        new(J, Δ, Dz, config, E, S, S_stag, n)
     end
 end
 @debug micstate = Microstate()
@@ -119,7 +166,7 @@ end
 @debug ΔE = Energy_Diff(micstate, 1, Spin(ϕ=π/2))
 
 """
-Calculate the S difference after rotating one spin.
+Calculate the total magnetization S difference of a Microstate after rotating one spin.
 
 """
 function S_Diff(micstate::Microstate, numbering::Int64, sp_new::Spin)
@@ -141,6 +188,45 @@ end
 @debug ΔS=S_Diff(Microstate(), 1, Spin(ϕ=π/2))
 
 """
+Calculate the average norm n difference of a Microstate after rotating one spin.
+"""
+function n_Diff(micstate::Microstate, numbering::Int64, sp_new::Spin)
+    L1 = micstate.config.L1
+    L2 = micstate.config.L2
+    spin_conf = micstate.config.spin_conf
+    sp_old = spin_conf[numbering]
+    @assert(
+        0 < numbering <= L1*L2,
+        "The numbering of rotated spin should be within range"
+    )
+    ######Start calculating n difference before and after
+    Δn = (sp_new.norm - sp_old.norm) / (L1*L2)
+    return Δn
+end
+@debug println(n_Diff(Microstate(), 1, Spin(norm=0)))
+
+"""
+Calculate the staggered total magnetization S difference of a Microstate after rotating one spin.
+"""
+function S_Diff_stag(micstate::Microstate, numbering::Int64, sp_new::Spin)
+    L1 = micstate.config.L1
+    L2 = micstate.config.L2
+    spin_conf = micstate.config.spin_conf
+    sp_old = spin_conf[numbering]
+    @assert(
+        0 < numbering <= L1*L2,
+        "The numbering of rotated spin should be within range"
+    )
+    coord = coordinate(numbering, L1=L1, L2=L2)
+    ######Start calculating S difference before and after
+    ΔS = (-1)^(coord[1]+coord[2]).*[sp_new.norm*sin(sp_new.θ)*cos(sp_new.ϕ) - sp_old.norm*sin(sp_old.θ)*cos(sp_old.ϕ),
+    sp_new.norm*sin(sp_new.θ)*sin(sp_new.ϕ) - sp_old.norm*sin(sp_old.θ)*sin(sp_old.ϕ),
+    sp_new.norm*cos(sp_new.θ) - sp_old.norm*cos(sp_old.θ)]
+    return ΔS
+end
+@debug println(S_Diff_stag(Microstate(), 1, Spin(ϕ=π/2)))
+
+"""
 Updating the current Microstate to a new Microstate. Also change the energy and S.
 
 Parameter:
@@ -151,6 +237,8 @@ sp_new::Spin : updated spin value for the selected spin.
 function update(micstate::Microstate, numbering::Int64, sp_new::Spin)
     micstate.E += Energy_Diff(micstate, numbering, sp_new)
     micstate.S += S_Diff(micstate, numbering, sp_new)
+    micstate.S_stag += S_Diff_stag(micstate, numbering, sp_new)
+    micstate.n += n_Diff(micstate, numbering, sp_new)
     micstate.config.spin_conf[numbering] = sp_new
 
     nothing

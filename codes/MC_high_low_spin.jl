@@ -2,7 +2,7 @@ include("confs.jl")
 using Plots
 using JLD
 using Dates
-using Statistics
+using Statistics, Distributions, LinearAlgebra 
 
 """
 Deciding whether to accept a proposed change or not.
@@ -32,8 +32,10 @@ Container to store value of measurement for each microstate in the Markov Chain.
 struct Sample
     E::Array{Float64,1}
     S::Array{Array{Float64,1},1}
+    S_stag::Array{Array{Float64,1},1}
+    n::Array{Float64, 1}
     function Sample()
-        new(Float64[], Array{Float64,1}[])
+        new(Float64[], Array{Float64,1}[], Array{Float64,1}[], Float64[])
     end
 end
 
@@ -55,6 +57,7 @@ function sampling(;
     thermal_cutoff::Int64 = Int(floor(0.4 * sweeps)),
     σ::Float64 = 1.0,
     init_micstate::Microstate,
+    norm_update = True
 )
     micstate = init_micstate
     L1 = init_micstate.config.L1
@@ -65,7 +68,11 @@ function sampling(;
             cos_θ_new = rand(Uniform(-1, 1))
             θ_new = acos(cos_θ_new)
             ϕ_new = rand(Uniform(0.0, 2 * π))
-            sp_new = Spin(θ = θ_new, ϕ = ϕ_new)
+            if norm_update
+                sp_new = Spin(norm = rand([1,0]),θ = θ_new, ϕ = ϕ_new)
+            else
+                sp_new = Spin(θ = θ_new, ϕ = ϕ_new)
+            end
             #val = mod1(conf.conf[m,n] + Int(ceil(rand(Normal(0, σ)))), conf.Q)
             if accept(micstate, numbering, sp_new, T)
                 update(micstate, numbering, sp_new)
@@ -76,14 +83,16 @@ function sampling(;
 
         push!(samples.E, micstate.E)
         push!(samples.S, copy(micstate.S))
+        push!(samples.S_stag, copy(micstate.S_stag))
+        push!(samples.n, micstate.n)
     end
     #println("length of sample is ", length(samples))
     return (samples, micstate.config)
 end
 
-@time result = sampling(
+#=@time result = sampling(
     T = 0.01,
     sweeps = 10^6,
     σ = 1.0,
-    init_micstate = Microstate(J=1.0, Dz=0.1,config=Lattice(4,4)),
-    )
+    init_micstate = Microstate(J=1.0, Dz=0.1,config=Lattice(6,6)),
+    )=#
